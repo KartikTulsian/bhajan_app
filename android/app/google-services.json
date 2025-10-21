@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "675708571305",
+    "project_id": "bhajan-app-6b651",
+    "storage_bucket": "bhajan-app-6b651.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:675708571305:android:78fd18091458451168a3b8",
+        "android_client_info": {
+          "package_name": "com.example.bhajan_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2UTA_xZlTy6RDwXd_ubhw9E7kBUiyH0k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
