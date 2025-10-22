@@ -22,9 +22,28 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  Future<List<Map<String, dynamic>>> fetchBhajansByNameAndArtist(
+      String bhajanName, String artistName) async {
+    final response = await client
+        .from('bhajans')
+        .select('*')
+        .eq('bhajan_name', bhajanName)
+        .eq('artist_name', artistName);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   // New helper method: delete all rows with a specific bhajan name
   Future<void> deleteBhajansByName(String bhajanName) async {
     await client.from('bhajans').delete().eq('bhajan_name', bhajanName);
+  }
+
+  Future<void> deleteBhajansByNameAndArtist(
+      String bhajanName, String artistName) async {
+    await client
+        .from('bhajans')
+        .delete()
+        .eq('bhajan_name', bhajanName)
+        .eq('artist_name', artistName);
   }
 
   Future<void> addLyric(String name, String url) async {
@@ -43,12 +62,12 @@ class SupabaseService {
   }
 
   Future<void> addBhajan(String name, String artist, String category, String url) async {
-    await client.from('bhajans').upsert({
+    await client.from('bhajans').insert({
       'bhajan_name': name,
       'artist_name': artist,
       'category': category,
       'audio_url': url,
-    }, onConflict: 'bhajan_name,category');
+    });
   }
 
   Future<void> updateBhajan(int id, String name, String artist, String category, String url) async {

@@ -25,11 +25,10 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
   bool _isUpdating = false;
 
   String? _selectedArtist;
-  String? _selectedCategory;
-  String? _selectedTimeCategory;
+  List<String> _selectedCategories = [];
 
   String _originalTitle = '';
-  String _originalCategory = '';
+  String _originalArtist = '';
   String _currentAudioUrl = '';
 
   final List<String> _artists = [
@@ -44,6 +43,8 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
   final List<Map<String, String>> _categories = [
     {'value': 'hindi', 'label': 'Hindi Bhajans'},
     {'value': 'bangla', 'label': 'Bangla Bhajans'},
+    {'value': 'morning', 'label': 'Morning Playlist'},
+    {'value': 'evening', 'label': 'Evening Playlist'},
     {'value': 'sankirtan', 'label': 'Bhajo Guru Chorus'},
     {'value': 'rags111', 'label': 'Bhajo Guru in 111 Rags'},
     {'value': 'harekrishna', 'label': 'Hare Krishna Hare Rama'},
@@ -51,11 +52,6 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
     {'value': 'jagannath', 'label': 'Jai Jagannath Sankirtan'},
     {'value': 'thakur', 'label': 'By Swami Asimananda Saraswati Ji'},
     {'value': 'path', 'label': 'Path and Pravachans'},
-  ];
-
-  final List<Map<String, String>> _timeCategories = [
-    {'value': 'morning', 'label': 'Morning Playlist'},
-    {'value': 'evening', 'label': 'Evening Playlist'},
   ];
 
   @override
@@ -66,60 +62,85 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
 
   Future<void> _loadBhajanData() async {
     _originalTitle = widget.bhajan['bhajan_name'] ?? '';
-    _originalCategory = widget.bhajan['category'] ?? '';
+    // _originalCategory = widget.bhajan['category'] ?? '';
+    _originalArtist = widget.bhajan['artist_name'] ?? '';
     _currentAudioUrl = widget.bhajan['audio_url'] ?? '';
 
     _titleController.text = _originalTitle;
 
-    final artist = widget.bhajan['artist_name'] ?? '';
-    _selectedArtist = _artists.contains(artist) ? artist : 'Other';
+    // final artist = widget.bhajan['artist_name'] ?? '';
+    // _selectedArtist = _artists.contains(artist) ? artist : 'Other';
+    // if (_selectedArtist == 'Other') {
+    //   _customArtistController.text = artist;
+    // }
+
+    _selectedArtist = _artists.contains(_originalArtist) ? _originalArtist : 'Other';
     if (_selectedArtist == 'Other') {
-      _customArtistController.text = artist;
+      _customArtistController.text = _originalArtist;
     }
 
     // Set main category (not morning/evening)
-    if (_originalCategory == 'morning' || _originalCategory == 'evening') {
-      _selectedTimeCategory = _originalCategory;
-      // Try to find the main category from database
-      await _findMainCategory();
-    } else {
-      _selectedCategory = _originalCategory;
-      // Check if there's a time category version
-      await _findTimeCategory();
-    }
+    // if (_originalCategory == 'morning' || _originalCategory == 'evening') {
+    //   _selectedTimeCategory = _originalCategory;
+    //   // Try to find the main category from database
+    //   await _findMainCategory();
+    // } else {
+    //   _selectedCategory = _originalCategory;
+    //   // Check if there's a time category version
+    //   await _findTimeCategory();
+    // }
+
+    await _loadAllCategories();
 
     setState(() {});
   }
 
-  Future<void> _findMainCategory() async {
-    // Find the main category row for this bhajan
-    try {
-      final rows = await _supabase.fetchBhajansByName(_originalTitle);
-      for (var row in rows) {
-        String cat = row['category'] ?? '';
-        if (cat != 'morning' && cat != 'evening') {
-          _selectedCategory ??= cat;
-          break;
-        }
-      }
-    } catch (e) {
-      debugPrint('Error finding main category: $e');
-    }
-  }
+  // Future<void> _findMainCategory() async {
+  //   // Find the main category row for this bhajan
+  //   try {
+  //     final rows = await _supabase.fetchBhajansByName(_originalTitle);
+  //     for (var row in rows) {
+  //       String cat = row['category'] ?? '';
+  //       if (cat != 'morning' && cat != 'evening') {
+  //         _selectedCategory ??= cat;
+  //         break;
+  //       }
+  //     }
+  //   } catch (e) {
+  //     debugPrint('Error finding main category: $e');
+  //   }
+  // }
 
-  Future<void> _findTimeCategory() async {
-    // Check if there's a morning/evening version
+  // Future<void> _findTimeCategory() async {
+  //   // Check if there's a morning/evening version
+  //   try {
+  //     final rows = await _supabase.fetchBhajansByName(_originalTitle);
+  //     for (var row in rows) {
+  //       String cat = row['category'] ?? '';
+  //       if (cat == 'morning' || cat == 'evening') {
+  //         _selectedTimeCategory ??= cat;
+  //         break;
+  //       }
+  //     }
+  //   } catch (e) {
+  //     debugPrint('Error finding time category: $e');
+  //   }
+  // }
+
+  Future<void> _loadAllCategories() async {
     try {
-      final rows = await _supabase.fetchBhajansByName(_originalTitle);
-      for (var row in rows) {
-        String cat = row['category'] ?? '';
-        if (cat == 'morning' || cat == 'evening') {
-          _selectedTimeCategory ??= cat;
-          break;
-        }
-      }
+      // Fetch all rows with same title and artist
+      final rows = await _supabase.fetchBhajansByNameAndArtist(_originalTitle, _originalArtist);
+
+      // Extract all categories
+      _selectedCategories = rows
+          .map((row) => row['category']?.toString() ?? '')
+          .where((cat) => cat.isNotEmpty)
+          .toList();
+
+      debugPrint('Loaded ${_selectedCategories.length} categories: $_selectedCategories');
     } catch (e) {
-      debugPrint('Error finding time category: $e');
+      debugPrint('Error loading categories: $e');
     }
   }
 
@@ -165,10 +186,69 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
         .trim();
   }
 
+  void _showCategorySelectionDialog() async {
+    List<String> tempSelected = List.from(_selectedCategories);
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Select Categories'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: _categories.map((category) {
+                    final value = category['value']!;
+                    final label = category['label']!;
+                    final isSelected = tempSelected.contains(value);
+
+                    return CheckboxListTile(
+                      title: Text(label),
+                      value: isSelected,
+                      activeColor: Colors.brown,
+                      onChanged: (checked) {
+                        setDialogState(() {
+                          if (checked == true) {
+                            tempSelected.add(value);
+                          } else {
+                            tempSelected.remove(value);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.brown,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    setState(() => _selectedCategories = tempSelected);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _updateBhajan() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedCategory == null) {
+    if (_selectedCategories.isEmpty) {
       _showSnackBar('Please select a category', isError: true);
       return;
     }
@@ -198,14 +278,11 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
       // 1. Delete all old rows with the original title
       // 2. Create new rows with updated data
 
-      await _supabase.deleteBhajansByName(_originalTitle);
+      await _supabase.deleteBhajansByNameAndArtist(_originalTitle, _originalArtist);
 
       // Add main category bhajan
-      await _supabase.addBhajan(newTitle, artist, _selectedCategory!, audioUrl);
-
-      // Add time category if selected
-      if (_selectedTimeCategory != null) {
-        await _supabase.addBhajan(newTitle, artist, _selectedTimeCategory!, audioUrl);
+      for (String category in _selectedCategories) {
+        await _supabase.addBhajan(newTitle, artist, category, audioUrl);
       }
 
       _showSnackBar('Bhajan updated successfully!', isError: false);
@@ -226,7 +303,10 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Bhajan'),
-        content: const Text('Are you sure you want to delete this bhajan? This action cannot be undone.'),
+        content: Text(
+            'Are you sure you want to delete "${_originalTitle}" by ${_originalArtist}?\n\n'
+                'This will remove it from all ${_selectedCategories.length} categories.'
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -246,7 +326,8 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
     setState(() => _isUpdating = true);
 
     try {
-      await _supabase.deleteBhajan(widget.bhajan['id']);
+      // Delete all rows with this title and artist
+      await _supabase.deleteBhajansByNameAndArtist(_originalTitle, _originalArtist);
       _showSnackBar('Bhajan deleted successfully!', isError: false);
 
       Future.delayed(Duration(seconds: 1), () {
@@ -368,41 +449,77 @@ class _UpdateBhajanState extends State<UpdateBhajan> {
 
               const SizedBox(height: 16),
 
-              // Main Category
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: InputDecoration(
-                  labelText: 'Main Category',
-                  border: OutlineInputBorder(
+              // Multi-Category Selection Button
+              InkWell(
+                onTap: _showCategorySelectionDialog,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.brown.shade300),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  prefixIcon: Icon(Icons.category, color: Colors.brown),
-                ),
-                items: _categories.map((c) {
-                  return DropdownMenuItem(
-                      value: c['value'], child: Text(c['label']!));
-                }).toList(),
-                onChanged: (value) => setState(() => _selectedCategory = value),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Time Category (morning/evening)
-              DropdownButtonFormField<String>(
-                value: _selectedTimeCategory,
-                decoration: InputDecoration(
-                  labelText: 'Time Category (Optional)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.category, color: Colors.brown),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Categories',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _selectedCategories.isEmpty
+                                  ? 'Select categories'
+                                  : '${_selectedCategories.length} selected',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: _selectedCategories.isEmpty
+                                    ? Colors.grey.shade600
+                                    : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios, size: 16, color: Colors.brown),
+                    ],
                   ),
-                  prefixIcon: Icon(Icons.schedule, color: Colors.brown),
                 ),
-                items: _timeCategories.map((c) {
-                  return DropdownMenuItem(
-                      value: c['value'], child: Text(c['label']!));
-                }).toList(),
-                onChanged: (value) => setState(() => _selectedTimeCategory = value),
               ),
+
+              // Display selected categories
+              if (_selectedCategories.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _selectedCategories.map((categoryValue) {
+                    final categoryLabel = _categories
+                        .firstWhere((c) => c['value'] == categoryValue,
+                        orElse: () => {'value': categoryValue, 'label': categoryValue})['label']!;
+                    return Chip(
+                      label: Text(
+                        categoryLabel,
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      backgroundColor: Colors.brown.shade100,
+                      deleteIcon: Icon(Icons.close, size: 16),
+                      onDeleted: () {
+                        setState(() {
+                          _selectedCategories.remove(categoryValue);
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
 
               const SizedBox(height: 24),
 

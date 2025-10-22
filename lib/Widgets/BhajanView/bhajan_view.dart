@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:bhajan_app/main.dart';
+import 'package:bhajan_app/service/cache_manager.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 
@@ -24,6 +25,8 @@ class BhajanView extends StatefulWidget {
 class _BhajanViewState extends State<BhajanView> {
   final _cloudinary = CloudinaryService();
   final _supabase = SupabaseService();
+  final _cacheManager = CacheManager();
+
 
   Box<dynamic>? _cacheBox;
 
@@ -130,7 +133,7 @@ class _BhajanViewState extends State<BhajanView> {
   };
 
   int selectedIconIndex = 0;
-  int selectedIndex = -10;
+  // int selectedIndex = -10;
 
   TextEditingController textFieldController = TextEditingController();
 
@@ -189,8 +192,15 @@ class _BhajanViewState extends State<BhajanView> {
   @override
   void initState() {
     super.initState();
-    _initAndFetch();
-    _requestNotificationPermission();
+    Future.delayed(const Duration(seconds: 1), _requestNotificationPermission);
+
+    // Fetch bhajans only after the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(milliseconds: 300)); // tiny safety delay
+      if (mounted) {
+        await fetchBhajans(); // load cached or Supabase data
+      }
+    });
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -201,49 +211,74 @@ class _BhajanViewState extends State<BhajanView> {
     }
   }
 
-  Future<void> _initAndFetch() async {
-    await _openCacheBoxIfNeeded();
-    await fetchBhajans();
-  }
+  // Future<void> _initAndFetch() async {
+  //   await _openCacheBoxIfNeeded();
+  //   await fetchBhajans();
+  // }
+  //
+  // Future<void> _openCacheBoxIfNeeded() async {
+  //   try {
+  //     if (!Hive.isBoxOpen('bhajansCache')) {
+  //       await Hive.openBox('bhajansCache');
+  //     }
+  //     _cacheBox = Hive.box('bhajansCache');
+  //   } catch (e) {
+  //     debugPrint('Hive openBox error: $e');
+  //     _cacheBox = null;
+  //   }
+  // }
 
-  Future<void> _openCacheBoxIfNeeded() async {
-    try {
-      if (!Hive.isBoxOpen('bhajansCache')) {
-        await Hive.openBox('bhajansCache');
-      }
-      _cacheBox = Hive.box('bhajansCache');
-    } catch (e) {
-      debugPrint('Hive openBox error: $e');
-      _cacheBox = null;
-    }
-  }
-
-  Future<void> fetchBhajans() async {
+  Future<void> fetchBhajans({bool forceRefresh = false}) async {
     if (!mounted) return;
+
     setState(() => isLoading = true);
+
+    // if (categoryBhajans['hindi']!.isEmpty) {
+    //   setState(() => isLoading = true);
+    // }
 
     try {
       // Fetch from Supabase
-      final raw = await _supabase
-          .fetchBhajans()
-          .timeout(const Duration(seconds: 10), onTimeout: () {
-        throw Exception('Timeout while fetching bhajans');
-      });
+      // final raw = await _supabase
+      //     .fetchBhajans()
+      //     .timeout(const Duration(seconds: 10), onTimeout: () {
+      //   throw Exception('Timeout while fetching bhajans');
+      // });
+      //
+      // List<Map<String, dynamic>> fetched = [];
+      // if (raw is List) {
+      //   try {
+      //     fetched = raw.map((e) {
+      //       if (e is Map<String, dynamic>) return e;
+      //       if (e is Map) return Map<String, dynamic>.from(e);
+      //       return <String, dynamic>{};
+      //     }).toList();
+      //   } catch (_) {
+      //     fetched = List<Map<String, dynamic>>.from(raw);
+      //   }
+      // }
 
-      List<Map<String, dynamic>> fetched = [];
-      if (raw is List) {
-        try {
-          fetched = raw.map((e) {
-            if (e is Map<String, dynamic>) return e;
-            if (e is Map) return Map<String, dynamic>.from(e);
-            return <String, dynamic>{};
-          }).toList();
-        } catch (_) {
-          fetched = List<Map<String, dynamic>>.from(raw);
+      final fetched = await _cacheManager.getBhajans(forceRefresh: forceRefresh);
+
+      if (fetched.isEmpty) {
+        debugPrint('🟡 Cache empty — trying Supabase refresh...');
+        // Automatically refresh from Supabase once if cache was empty
+        if (!forceRefresh) {
+          await fetchBhajans(forceRefresh: true);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ No Bhajans found online or offline.'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
         }
+        return;
       }
 
-      // Group by category
+      // Clear existing data
       for (var category in categoryBhajans.keys) {
         categoryBhajans[category] = [];
       }
@@ -285,57 +320,28 @@ class _BhajanViewState extends State<BhajanView> {
       // Initialize filtered lists
       resetFilteredLists();
 
-      // Save to cache
-      try {
-        Map<String, dynamic> cacheData = {};
-        categoryBhajans.forEach((key, value) {
-          cacheData[key] = value.map((item) => {
-            'identifier': item.identifier,
-            'bhajanName': item.bhajanName,
-            'artistName': item.artistName,
-            'url': item.url,
-          }).toList();
-        });
-        _cacheBox?.put('bhajans', cacheData);
-      } catch (e) {
-        debugPrint('Cache put error: $e');
+      if (mounted) setState(() {});
+
+      if (forceRefresh && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Updated successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
+          ),
+        );
       }
 
-      if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('fetchBhajans error: $e — falling back to cache');
-
-      // Fallback to cache
-      try {
-        final cached = _cacheBox?.get('bhajans');
-        if (cached is Map) {
-          int identifier = 0;
-          cached.forEach((key, value) {
-            if (value is List && categoryBhajans.containsKey(key)) {
-              categoryBhajans[key] = value.map((item) {
-                return Item(
-                  identifier: identifier++,
-                  bhajanName: item['bhajanName']?.toString() ?? '',
-                  artistName: item['artistName']?.toString() ?? '',
-                  url: item['url']?.toString() ?? '',
-                );
-              }).toList();
-            }
-          });
-
-          categoryBhajans.forEach((key, value) {
-            value.sort((a, b) => a.bhajanName
-                .toLowerCase()
-                .compareTo(b.bhajanName.toLowerCase()));
-          });
-
-          resetFilteredLists();
-        }
-      } catch (e2) {
-        debugPrint('Cache read error: $e2');
+      debugPrint('fetchBhajans error (unhandled by CacheManager): $e');
+      if (mounted && forceRefresh) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Severe error loading bhajans. Try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
-
-      if (mounted) setState(() {});
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -472,7 +478,8 @@ class _BhajanViewState extends State<BhajanView> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: isLoading ? null : fetchBhajans,
+            onPressed: isLoading ? null : () => fetchBhajans(forceRefresh: true),
+            tooltip: 'Refresh',
           ),
         ],
       ),
@@ -499,7 +506,7 @@ class _BhajanViewState extends State<BhajanView> {
                       onTap: () {
                         setState(() {
                           selectedIconIndex = index;
-                          selectedIndex = -10;
+                          // selectedIndex = -10;
                           resetSearch();
                         });
                       },
@@ -614,7 +621,17 @@ class _BhajanViewState extends State<BhajanView> {
       },
       itemBuilder: (context, index) {
         Item item = currentList[index];
-        bool isSelected = selectedIndex == index;
+        final isPlayingItem = playerData.isPlaying &&
+            playerData.selectedList.isNotEmpty &&
+            playerData.currentIndex == index && currentList.length == playerData.selectedList.length &&
+            item.url == (playerData.selectedList.length > index ? playerData.selectedList[index].url : '');
+
+        // Use isPlayingItem for the selected state
+        bool isSelected = playerData.isPlaying &&
+            playerData.selectedList.isNotEmpty &&
+            playerData.currentIndex >= 0 &&
+            playerData.currentIndex < playerData.selectedList.length &&
+            playerData.selectedList[playerData.currentIndex].url == item.url;
 
         return ListTile(
           title: isSelected
@@ -637,7 +654,7 @@ class _BhajanViewState extends State<BhajanView> {
             ),
           ),
           onTap: () {
-            setState(() => selectedIndex = index);
+            // setState(() => selectedIndex = index);
             _playMusic(
               item.bhajanName,
               index,
@@ -686,7 +703,7 @@ class _BhajanViewState extends State<BhajanView> {
       playerData.isPlaying = true;
       playerData.selectedList = getSongList(iconIndex);
       playerData.currentIndex = listIndex;
-      selectedIndex = listIndex;
+      // selectedIndex = listIndex;
     });
 
     print('bhajan played');
@@ -703,7 +720,7 @@ class _BhajanViewState extends State<BhajanView> {
         : currentListIndex - 1;
     Item prevSong = currentList[prevIndex];
 
-    setState(() => selectedIndex = prevIndex);
+    // setState(() => selectedIndex = prevIndex);
     _playMusic(prevSong.bhajanName, prevIndex, prevSong.url, iconIndex);
   }
 
@@ -723,9 +740,9 @@ class _BhajanViewState extends State<BhajanView> {
     int nextIndex = (currentListIndex + 1) % currentList.length;
     Item nextSong = currentList[nextIndex];
 
-    setState(() {
-      selectedIndex = nextIndex;
-    });
+    // setState(() {
+    //   selectedIndex = nextIndex;
+    // });
 
     _playMusic(nextSong.bhajanName, nextIndex, nextSong.url, iconIndex);
   }

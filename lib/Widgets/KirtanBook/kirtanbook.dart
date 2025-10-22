@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:bhajan_app/Model/list_builder.dart';
+import 'package:bhajan_app/service/cache_manager.dart';
 import 'package:bhajan_app/service/cloudinary_service.dart';
 import 'package:bhajan_app/service/supabase_service.dart';
 import 'package:flutter/material.dart';
@@ -17,9 +18,10 @@ class LyricsView extends StatefulWidget {
 class _LyricsViewState extends State<LyricsView> {
   final _supabase = SupabaseService();
   final _cloudinary = CloudinaryService();
+  final _cacheManager = CacheManager();
 
   // cache box will be opened lazily
-  Box<dynamic>? _cacheBox;
+  // Box<dynamic>? _cacheBox;
 
   List<Map<String, dynamic>> lyricsList = [];
   List<Map<String, dynamic>> _allLyrics = [];
@@ -31,86 +33,90 @@ class _LyricsViewState extends State<LyricsView> {
   @override
   void initState() {
     super.initState();
-    _initAndFetch();
+    // _initAndFetch();
+    fetchLyrics();
   }
 
-  Future<void> _initAndFetch() async {
-    await _openCacheBoxIfNeeded();
-    await fetchLyrics();
-  }
+  // Future<void> _initAndFetch() async {
+  //   await _openCacheBoxIfNeeded();
+  //   await fetchLyrics();
+  // }
 
-  Future<void> _openCacheBoxIfNeeded() async {
-    try {
-      if (!Hive.isBoxOpen('lyricsCache')) {
-        await Hive.openBox('lyricsCache');
-      }
-      _cacheBox = Hive.box('lyricsCache');
-    } catch (e) {
-      // If opening fails, keep _cacheBox null and continue — app won't crash.
-      debugPrint('Hive openBox error: $e');
-      _cacheBox = null;
-    }
-  }
+  // Future<void> _openCacheBoxIfNeeded() async {
+  //   try {
+  //     if (!Hive.isBoxOpen('lyricsCache')) {
+  //       await Hive.openBox('lyricsCache');
+  //     }
+  //     _cacheBox = Hive.box('lyricsCache');
+  //   } catch (e) {
+  //     // If opening fails, keep _cacheBox null and continue — app won't crash.
+  //     debugPrint('Hive openBox error: $e');
+  //     _cacheBox = null;
+  //   }
+  // }
 
-  Future<void> fetchLyrics() async {
+  Future<void> fetchLyrics({bool forceRefresh = false}) async {
     if (!mounted) return;
     setState(() => isLoading = true);
 
+    bool shouldShowError = false;
+
     try {
       // Attempt network fetch with timeout (prevents hanging)
-      final raw = await _supabase
-          .fetchLyrics()
-          .timeout(const Duration(seconds: 8), onTimeout: () {
-        throw Exception('Timeout while fetching lyrics');
-      });
+      final fetched = await _cacheManager.getLyrics(forceRefresh: forceRefresh);
 
-      // Ensure we have a safe List<Map<String, dynamic>>
-      List<Map<String, dynamic>> fetched = [];
-      if (raw is List) {
-        try {
-          fetched = raw.map((e) {
-            if (e is Map<String, dynamic>) return e;
-            if (e is Map) return Map<String, dynamic>.from(e);
-            return <String, dynamic>{};
-          }).toList();
-        } catch (_) {
-          fetched = List<Map<String, dynamic>>.from(raw);
+      // Only show error if we got empty result AND it's a force refresh
+      if (fetched.isEmpty) {
+        if (mounted && forceRefresh) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not refresh. Using cached data.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
+        // Don't show error on initial load
+        _allLyrics = [];
+        if (mounted) setState(() => lyricsList = []);
+        return;
       }
 
       // Sort alphabetically
-      fetched.sort((a, b) => a['lyricsName']
-          .toString()
-          .toLowerCase()
-          .compareTo(b['lyricsName'].toString().toLowerCase()));
-
+      // fetched.sort((a, b) => a['lyricsName']
+      //     .toString()
+      //     .toLowerCase()
+      //     .compareTo(b['lyricsName'].toString().toLowerCase()));
+      //
       _allLyrics = fetched;
       if (mounted) setState(() => lyricsList = List<Map<String, dynamic>>.from(_allLyrics));
 
-      // Save to cache if box available
-      try {
-        _cacheBox?.put('lyrics', _allLyrics);
-      } catch (e) {
-        debugPrint('Cache put error: $e');
-      }
-    } catch (e) {
-      debugPrint('fetchLyrics error: $e — falling back to cache');
-      // Fallback to cache
-      try {
-        final cached = _cacheBox?.get('lyrics', defaultValue: []);
-        if (cached is List && cached.isNotEmpty) {
-          _allLyrics = List<Map<String, dynamic>>.from(cached);
-        } else {
-          _allLyrics = [];
-        }
-      } catch (e2) {
-        debugPrint('Cache read error: $e2');
-        _allLyrics = [];
+      // Show success message only on manual refresh
+      if (forceRefresh && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Updated successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
+          ),
+        );
       }
 
-      if (mounted) setState(() => lyricsList = List<Map<String, dynamic>>.from(_allLyrics));
+    } catch (e) {
+      // Show error only if fetching failed unexpectedly (i.e., CacheManager threw an exception)
+      debugPrint('fetchLyrics error (unhandled by CacheManager): $e');
+      if (mounted && forceRefresh) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Severe error loading lyrics. Try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -257,7 +263,7 @@ class _LyricsViewState extends State<LyricsView> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: isLoading ? null : fetchLyrics,
+            onPressed: isLoading ? null : () => fetchLyrics(forceRefresh: true), // 👈 Added forceRefresh: true
           ),
         ],
       ),

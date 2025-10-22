@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:bhajan_app/Utility/AudioPlayer/audio_handler.dart';
 import 'package:bhajan_app/Widgets/Home/splash_screen.dart';
+import 'package:bhajan_app/service/cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,27 +11,43 @@ late BhajanAudioHandler audioHandler;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  audioHandler = await AudioService.init(
-    builder: () => BhajanAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.example.bhajan_app.audio',
-      androidNotificationChannelName: 'Bhajan Playback',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
+  try {
 
-      // *** CRITICAL ADDITION: Set the small icon here ***
-      androidNotificationIcon: 'drawable/ic_notification',
-    ),
-  );
+    // Initialize Supabase
+    await Supabase.initialize(
+      url: 'https://uaaribivjeemejloghwc.supabase.co',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhYXJpYml2amVlbWVqbG9naHdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAwMzk4MTcsImV4cCI6MjA3NTYxNTgxN30.V8DmBTN-E2Tex2SU-7OdVC8H3KYQaNDV7CVcvmx4uo0',
+    );
 
-  await Hive.initFlutter();
-  await Hive.openBox('lyricsCache');
-  await Hive.openBox('bookmarks');
+    // Initialize Audio Handler
+    audioHandler = await AudioService.init(
+      builder: () => BhajanAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.example.bhajan_app.audio',
+        androidNotificationChannelName: 'Bhajan Playback',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+        androidNotificationIcon: 'drawable/ic_notification',
+      ),
+    );
 
-  await Supabase.initialize(
-    url: 'https://uaaribivjeemejloghwc.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhYXJpYml2amVlbWVqbG9naHdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAwMzk4MTcsImV4cCI6MjA3NTYxNTgxN30.V8DmBTN-E2Tex2SU-7OdVC8H3KYQaNDV7CVcvmx4uo0',
-  );
+    // Initialize Hive
+    await Hive.initFlutter();
+
+    // Open required Hive boxes
+    await Hive.openBox('bhajansCache');
+    await Hive.openBox('lyricsCache');
+    await Hive.openBox('bookmarks');
+
+    // Initialize CacheManager (it will use the already opened boxes)
+    await CacheManager().initialize();
+
+
+
+    debugPrint('✅ All services initialized successfully');
+  } catch (e) {
+    debugPrint('❌ Initialization error: $e');
+  }
   runApp(const MyApp());
 }
 
@@ -48,7 +65,6 @@ class MyApp extends StatelessWidget {
       ),
       debugShowCheckedModeBanner: false,
 
-      // ✅ Start at SplashScreen
       home: Builder(
         builder: (context) {
           return MediaQuery(

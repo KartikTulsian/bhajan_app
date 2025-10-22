@@ -23,7 +23,9 @@ class _UploadBhajanState extends State<UploadBhajan> {
   bool _isUploading = false;
 
   String? _selectedArtist;
-  String? _selectedCategory;
+  // String? _selectedCategory;
+
+  List<String> _selectedCategories = [];
 
   final List<String> _artists = [
     'Select Artist Name',
@@ -38,6 +40,8 @@ class _UploadBhajanState extends State<UploadBhajan> {
   final List<Map<String, String>> _categories = [
     {'value': 'hindi', 'label': 'Hindi Bhajans'},
     {'value': 'bangla', 'label': 'Bangla Bhajans'},
+    {'value': 'morning', 'label': 'Morning Playlist'},
+    {'value': 'evening', 'label': 'Evening Playlist'},
     {'value': 'sankirtan', 'label': 'Bhajo Guru Chorus'},
     {'value': 'rags111', 'label': 'Bhajo Guru in 111 Rags'},
     {'value': 'harekrishna', 'label': 'Hare Krishna Hare Rama'},
@@ -47,12 +51,11 @@ class _UploadBhajanState extends State<UploadBhajan> {
     {'value': 'path', 'label': 'Path and Pravachans'},
   ];
 
-  String? _selectedTimeCategory;
-
-  final List<Map<String, String>> _timeCategories = [
-    {'value': 'morning', 'label': 'Morning Playlist'},
-    {'value': 'evening', 'label': 'Evening Playlist'},
-  ];
+  // String? _selectedTimeCategory;
+  //
+  // final List<Map<String, String>> _timeCategories = [
+  //
+  // ];
 
   @override
   void dispose() {
@@ -95,6 +98,65 @@ class _UploadBhajanState extends State<UploadBhajan> {
         .trim();
   }
 
+  void _showCategorySelectionDialog() async {
+    List<String> tempSelected = List.from(_selectedCategories);
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Select Categories'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: _categories.map((category) {
+                    final value = category['value']!;
+                    final label = category['label']!;
+                    final isSelected = tempSelected.contains(value);
+
+                    return CheckboxListTile(
+                      title: Text(label),
+                      value: isSelected,
+                      activeColor: Colors.brown,
+                      onChanged: (checked) {
+                        setDialogState(() {
+                          if (checked == true) {
+                            tempSelected.add(value);
+                          } else {
+                            tempSelected.remove(value);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.brown,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    setState(() => _selectedCategories = tempSelected);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _uploadBhajan() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -103,8 +165,8 @@ class _UploadBhajanState extends State<UploadBhajan> {
       return;
     }
 
-    if (_selectedCategory == null) {
-      _showSnackBar('Please select a category', isError: true);
+    if (_selectedCategories.isEmpty) {
+      _showSnackBar('Please select at least one category', isError: true);
       return;
     }
 
@@ -130,17 +192,9 @@ class _UploadBhajanState extends State<UploadBhajan> {
         fileName,
       );
 
-      // Store main bhajan
-      await _supabase.addBhajan(title, artist, _selectedCategory!, audioUrl);
-
-      // Also store the morning/evening version (same URL)
-      if (_selectedTimeCategory != null) {
-        await _supabase.addBhajan(
-          title,
-          artist,
-          _selectedTimeCategory!,
-          audioUrl,
-        );
+      // Store bhajan for each selected category
+      for (String category in _selectedCategories) {
+        await _supabase.addBhajan(title, artist, category, audioUrl);
       }
 
       _showSnackBar('Bhajan uploaded successfully!', isError: false);
@@ -152,8 +206,7 @@ class _UploadBhajanState extends State<UploadBhajan> {
         _selectedAudioBytes = null;
         _selectedAudioName = null;
         _selectedArtist = null;
-        _selectedCategory = null;
-        _selectedTimeCategory = null;
+        _selectedCategories = [];
       });
 
       // Navigate back after successful upload
@@ -268,54 +321,76 @@ class _UploadBhajanState extends State<UploadBhajan> {
               const SizedBox(height: 16),
 
               // Category Dropdown
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: InputDecoration(
-                  labelText: 'Category',
-                  border: OutlineInputBorder(
+              // Multi-Category Selection Button
+              InkWell(
+                onTap: _showCategorySelectionDialog,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.brown.shade300),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  prefixIcon: Icon(Icons.category, color: Colors.brown),
-                ),
-                items: _categories.map((category) {
-                  return DropdownMenuItem(
-                    value: category['value'],
-                    child: Text(category['label']!),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() => _selectedCategory = value);
-                },
-                validator: (value) {
-                  if (value == null) {
-                    return 'Please select a category';
-                  }
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              // Morning/Evening Dropdown
-              DropdownButtonFormField<String>(
-                value: _selectedTimeCategory,
-                decoration: InputDecoration(
-                  labelText: 'Time of Bhajan (Optional: Morning / Evening)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.category, color: Colors.brown),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Categories',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _selectedCategories.isEmpty
+                                  ? 'Select categories'
+                                  : '${_selectedCategories.length} selected',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: _selectedCategories.isEmpty
+                                    ? Colors.grey.shade600
+                                    : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios, size: 16, color: Colors.brown),
+                    ],
                   ),
-                  prefixIcon: Icon(Icons.wb_sunny, color: Colors.brown),
                 ),
-                items: _timeCategories.map((category) {
-                  return DropdownMenuItem(
-                    value: category['value'],
-                    child: Text(category['label']!),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() => _selectedTimeCategory = value);
-                },
               ),
+
+              // Display selected categories
+              if (_selectedCategories.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _selectedCategories.map((categoryValue) {
+                    final categoryLabel = _categories
+                        .firstWhere((c) => c['value'] == categoryValue)['label']!;
+                    return Chip(
+                      label: Text(
+                        categoryLabel,
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      backgroundColor: Colors.brown.shade100,
+                      deleteIcon: Icon(Icons.close, size: 16),
+                      onDeleted: () {
+                        setState(() {
+                          _selectedCategories.remove(categoryValue);
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
 
               const SizedBox(height: 24),
 
