@@ -36,6 +36,9 @@ class _BhajanViewState extends State<BhajanView> {
 
   StreamSubscription<void>? _completionSubscription;
 
+  int _pendingIndex = -1;
+  int _pendingIconIndex = -1;
+
   Future<void> uploadAllBhajans() async {
     setState(() => uploading = true);
 
@@ -621,17 +624,20 @@ class _BhajanViewState extends State<BhajanView> {
       },
       itemBuilder: (context, index) {
         Item item = currentList[index];
-        final isPlayingItem = playerData.isPlaying &&
-            playerData.selectedList.isNotEmpty &&
-            playerData.currentIndex == index && currentList.length == playerData.selectedList.length &&
-            item.url == (playerData.selectedList.length > index ? playerData.selectedList[index].url : '');
+        bool isSelected = false;
 
-        // Use isPlayingItem for the selected state
-        bool isSelected = playerData.isPlaying &&
+        // Check if pending (just clicked, loading)
+        if (_pendingIndex == index && _pendingIconIndex == selectedIconIndex) {
+          isSelected = true;
+        }
+        // Check if actually playing
+        else if (playerData.isPlaying &&
             playerData.selectedList.isNotEmpty &&
             playerData.currentIndex >= 0 &&
             playerData.currentIndex < playerData.selectedList.length &&
-            playerData.selectedList[playerData.currentIndex].url == item.url;
+            playerData.selectedList[playerData.currentIndex].url == item.url) {
+          isSelected = true;
+        }
 
         return ListTile(
           title: isSelected
@@ -668,6 +674,11 @@ class _BhajanViewState extends State<BhajanView> {
   }
 
   void _playMusic( String songName, int listIndex, String url, int iconIndex) async {
+    setState(() {
+      _pendingIndex = listIndex;
+      _pendingIconIndex = iconIndex;
+    });
+
     _completionSubscription?.cancel();
 
     await playerData.player.stop();
@@ -704,6 +715,8 @@ class _BhajanViewState extends State<BhajanView> {
       playerData.selectedList = getSongList(iconIndex);
       playerData.currentIndex = listIndex;
       // selectedIndex = listIndex;
+      _pendingIndex = -1;
+      _pendingIconIndex = -1;
     });
 
     print('bhajan played');
